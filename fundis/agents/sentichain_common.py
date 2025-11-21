@@ -14,8 +14,7 @@ from web3 import Web3
 from web3.exceptions import ContractLogicError
 
 from ..config import (
-    UNISWAP_V3_FEE_TIER,
-    UNISWAP_V3_SWAP_ROUTER_ADDRESS,
+    AERODROME_ROUTER_ADDRESS,
     USDC_ADDRESS,
 )
 from ..memory import MemoryService, Position
@@ -184,32 +183,6 @@ def _log_and_print(memory: MemoryService, ctx: AgentContext, agent_name: str, ms
     memory.log(msg, wallet_address=ctx.wallet_address, agent_name=agent_name)
 
 
-UNISWAP_V3_SWAP_ROUTER_ABI = [
-    {
-        "name": "exactInputSingle",
-        "type": "function",
-        "stateMutability": "payable",
-        "inputs": [
-            {
-                "components": [
-                    {"name": "tokenIn", "type": "address"},
-                    {"name": "tokenOut", "type": "address"},
-                    {"name": "fee", "type": "uint24"},
-                    {"name": "recipient", "type": "address"},
-                    {"name": "deadline", "type": "uint256"},
-                    {"name": "amountIn", "type": "uint256"},
-                    {"name": "amountOutMinimum", "type": "uint256"},
-                    {"name": "sqrtPriceLimitX96", "type": "uint160"},
-                ],
-                "name": "params",
-                "type": "tuple",
-            }
-        ],
-        "outputs": [{"name": "amountOut", "type": "uint256"}],
-    }
-]
-
-
 def _perform_swap(
     ctx: AgentContext,
     memory: MemoryService,
@@ -223,18 +196,18 @@ def _perform_swap(
     amount_raw: int,
 ) -> bool:
     """
-    Perform a Uniswap v3 exactInputSingle swap on Base.
-
-    This always executes live on-chain swaps using the canonical Uniswap v3
-    SwapRouter deployed on Base (same address as mainnet via CREATE2).
+    Perform a swap on Aerodrome Finance on Base.
+    
+    Aerodrome is the primary DEX on Base with deep liquidity for major pairs.
     """
+    from ..aerodrome import try_aerodrome_swap_simulation, build_aerodrome_swap_tx
+    
     w3: Web3 = ctx.web3
     wallet = to_checksum(w3, ctx.wallet_address)
-    router_address = to_checksum(w3, UNISWAP_V3_SWAP_ROUTER_ADDRESS)
+    router_address = to_checksum(w3, AERODROME_ROUTER_ADDRESS)
     token_in = to_checksum(w3, from_token_address)
     token_out = to_checksum(w3, to_token_address)
-
-    router = w3.eth.contract(address=router_address, abi=UNISWAP_V3_SWAP_ROUTER_ABI)
+    
     token_in_contract = w3.eth.contract(address=token_in, abi=ERC20_MINIMAL_ABI)
 
     # Log context
@@ -242,11 +215,44 @@ def _perform_swap(
         memory,
         ctx,
         agent_name,
-        f"[LIVE] Preparing Uniswap v3 swap on router {router_address}: "
+        f"[LIVE] Preparing Aerodrome swap on router {router_address}: "
         f"{amount_human} {from_token_symbol} -> {to_token_symbol}.",
     )
 
-    # 1) Ensure allowance
+    # 1) Try to simulate the swap first
+    try:
+        result = try_aerodrome_swap_simulation(
+            w3, from_token_address, to_token_address, amount_raw, wallet
+        )
+        
+        if not result:
+            _log_and_print(
+                memory,
+                ctx,
+                agent_name,
+                f"No liquidity found on Aerodrome for {from_token_symbol}/{to_token_symbol}. "
+                "Cannot execute swap.",
+            )
+            return False
+            
+        output_amount, routes = result
+        _log_and_print(
+            memory,
+            ctx,
+            agent_name,
+            f"Found liquidity on Aerodrome! Expected output: {output_amount}",
+        )
+        
+    except Exception as exc:  # noqa: BLE001
+        _log_and_print(
+            memory,
+            ctx,
+            agent_name,
+            f"Error simulating Aerodrome swap: {exc!r}. Aborting.",
+        )
+        return False
+
+    # 2) Check and handle allowance
     try:
         allowance = token_in_contract.functions.allowance(wallet, router_address).call()
     except Exception as exc:  # noqa: BLE001
@@ -259,7 +265,6 @@ def _perform_swap(
         return False
 
     try:
-        # Use 'pending' to account for any transactions we just sent (e.g. approvals)
         nonce = w3.eth.get_transaction_count(wallet, "pending")
     except Exception as exc:  # noqa: BLE001
         _log_and_print(
@@ -273,11 +278,13 @@ def _perform_swap(
     gas_price = w3.eth.gas_price
 
     if allowance < amount_raw:
-        msg = (
+        _log_and_print(
+            memory,
+            ctx,
+            agent_name,
             f"Current allowance for {from_token_symbol} is {allowance}, "
-            f"needs to be at least {amount_raw}. Sending approval transaction..."
+            f"needs to be at least {amount_raw}. Sending approval transaction...",
         )
-        _log_and_print(memory, ctx, agent_name, msg)
         try:
             approve_tx = token_in_contract.functions.approve(
                 router_address, amount_raw
@@ -326,7 +333,7 @@ def _perform_swap(
             f"Approval confirmed in block {approve_receipt.blockNumber}. Proceeding to swap...",
         )
 
-        # Refresh nonce after approval, again using 'pending'
+        # Refresh nonce after approval
         try:
             nonce = w3.eth.get_transaction_count(wallet, "pending")
         except Exception as exc:  # noqa: BLE001
@@ -338,75 +345,14 @@ def _perform_swap(
             )
             return False
 
-    # 2) Compute amountOutMin with basic slippage control
-    # For now we conservatively set amountOutMinimum=0 (no slippage protection).
-    amount_out_min = 0
-
-    # 3) Build and send swap transaction
-    deadline_seconds = 900  # 15 minutes
-    deadline = int(time.time()) + deadline_seconds
-
+    # 3) Execute the swap
+    deadline = int(time.time()) + 900  # 15 minutes
+    
     try:
-        params = {
-            "tokenIn": token_in,
-            "tokenOut": token_out,
-            "fee": UNISWAP_V3_FEE_TIER,
-            "recipient": wallet,
-            "deadline": deadline,
-            "amountIn": amount_raw,
-            "amountOutMinimum": amount_out_min,
-            "sqrtPriceLimitX96": 0,
-        }
-
-        # Dry-run the swap using eth_call first to avoid wasting gas if the pool
-        # does not exist or has insufficient liquidity.
-        try:
-            simulated_out = router.functions.exactInputSingle(params).call(
-                {"from": wallet}
-            )
-            if simulated_out <= 0:
-                _log_and_print(
-                    memory,
-                    ctx,
-                    agent_name,
-                    "Swap simulation returned zero output; "
-                    "likely no usable pool or insufficient liquidity. Skipping swap.",
-                )
-                return False
-        except ContractLogicError as exc:
-            _log_and_print(
-                memory,
-                ctx,
-                agent_name,
-                f"Swap simulation reverted: {exc}. "
-                "This usually means there is no pool or not enough liquidity. Skipping swap.",
-            )
-            return False
-        except HTTPError as exc:
-            _log_and_print(
-                memory,
-                ctx,
-                agent_name,
-                f"RPC error during swap simulation: {exc}. Skipping swap; try again later.",
-            )
-            return False
-        except Exception as exc:  # noqa: BLE001
-            _log_and_print(
-                memory,
-                ctx,
-                agent_name,
-                f"Unexpected error during swap simulation: {exc!r}. Skipping swap.",
-            )
-            return False
-
-        swap_tx = router.functions.exactInputSingle(params).build_transaction(
-            {
-                "from": wallet,
-                "nonce": nonce,
-                "gas": 500_000,
-                "gasPrice": gas_price,
-                "chainId": ctx.chain_id,
-            }
+        swap_tx = build_aerodrome_swap_tx(
+            w3, wallet, ctx.private_key,
+            amount_raw, 0, routes, deadline,  # 0 for amountOutMin (no slippage protection for now)
+            nonce, gas_price, ctx.chain_id
         )
         signed_swap = w3.eth.account.sign_transaction(
             swap_tx, private_key=ctx.private_key
@@ -416,8 +362,9 @@ def _perform_swap(
             memory,
             ctx,
             agent_name,
-            f"Sent swap tx: {swap_hash.hex()} "
-            f"({amount_human} {from_token_symbol} -> {to_token_symbol}). Waiting for confirmation...",
+            f"Sent Aerodrome swap tx: {swap_hash.hex()} "
+            f"({amount_human} {from_token_symbol} -> {to_token_symbol}). "
+            f"Waiting for confirmation...",
         )
         swap_receipt = w3.eth.wait_for_transaction_receipt(swap_hash)
     except Exception as exc:  # noqa: BLE001
@@ -442,7 +389,7 @@ def _perform_swap(
         memory,
         ctx,
         agent_name,
-        f"Swap transaction confirmed in block {swap_receipt.blockNumber}.",
+        f"Swap transaction confirmed in block {swap_receipt.blockNumber}!",
     )
     return True
 
@@ -736,5 +683,3 @@ def run_unwind_generic(
     )
     if ok:
         memory.update_position_side(ctx.wallet_address, agent_name, "USDC")
-
-

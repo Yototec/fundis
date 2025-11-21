@@ -25,14 +25,13 @@ BASE_CHAIN_ID: int = 8453
 BASE_RPC_URL: str = "https://mainnet.base.org"
 
 # Token addresses on Base (as plain strings; converted to checksum addresses by web3 helpers)
-USDC_ADDRESS = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+USDC_ADDRESS = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"  # Native USDC on Base
 WBTC_ADDRESS = "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c"
 WETH_ADDRESS = "0x4200000000000000000000000000000000000006"
 
-# Uniswap v3 contracts on Base (from official deployments)
-# https://docs.uniswap.org/contracts/v3/reference/deployments/base-deployments
-UNISWAP_V3_SWAP_ROUTER_ADDRESS = "0x2626664c2603336E57B271c5C0b26F421741e481"
-UNISWAP_V3_FEE_TIER = 3000  # 0.3% pool
+# Aerodrome Finance - Primary DEX on Base
+# Aerodrome is a fork of Velodrome with concentrated liquidity support
+AERODROME_ROUTER_ADDRESS = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"
 
 
 def ensure_data_dir() -> None:
