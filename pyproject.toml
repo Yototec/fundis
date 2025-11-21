@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-platform"
+version = "0.1.0"
+description = "Local web3 trading agent platform with SentiChain sentiment agents."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Fundis", email = "dev@fundis.local" },
+]
+license = { text = "MIT" }
+dependencies = [
+  "typer[all]>=0.9.0,<1.0.0",
+  "requests>=2.32.0,<3.0.0",
+  "web3==7.12.0",
+]
+
+[project.scripts]
+fundis = "fundis.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fundis*"]
+
+
