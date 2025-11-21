@@ -1,129 +1,171 @@
-## agent-platform
+# Fundis
 
-Python package and CLI to run local web3 trading agents powered by SentiChain sentiment data.
+Web3 trading agents powered by SentiChain sentiment data on Base network.
 
-### Features
+## Overview
 
-- **CLI entrypoint `fundis`**
-  - **`fundis wallet`**: interactive wallet management
-    - **Import** an EVM private key (Base-compatible) and store it locally
-    - **Export** a stored private key
-    - **Delete** a stored wallet
-  - **`fundis auth`**: manage the SentiChain API key used by agents
-    - **Set / update** the API key (stored locally in `~/.fundis/auth.json`)
-    - **Show** the current key (partially masked)
-    - **Delete** the stored key
-  - **`fundis agent`**: interactive agent management
-    - Choose a pre-defined agent
-    - Choose a wallet
-    - **Update** (run the agent once)
-    - **Unwind** (return the agent position back to USDC)
+Fundis is a Python CLI tool for running automated trading agents that make decisions based on real-time sentiment analysis from [SentiChain](https://sentichain.com/). The agents trade on Base network using Aerodrome Finance, the primary DEX on Base.
 
-- **Local storage**
-  - Wallets stored in a JSON file under a user data directory (by default `~/.fundis/wallets.json`)
-  - Agent memory stored in a local SQLite database (by default `~/.fundis/memory.db`)
+## Features
 
-- **Agents**
-  - **`SentiChain ETH Agent on Base`**
-  - **`SentiChain BTC Agent on Base`**
-  - Both agents:
-    - Pull reasoning from SentiChain:
-      - `https://api.sentichain.com/agent/get_reasoning_last?ticker=ETH&summary_type=l3_event_sentiment_reasoning&api_key=...`
-      - `https://api.sentichain.com/agent/get_reasoning_last?ticker=BTC&summary_type=l3_event_sentiment_reasoning&api_key=...`
-    - Stream a human-readable view of the latest events to the CLI
-    - Count **bullish** vs **bearish** events and trade accordingly
+- **Sentiment-Based Trading**: Agents automatically trade based on bullish/bearish sentiment from SentiChain
+- **Real On-Chain Execution**: Live trading on Base network via Aerodrome Finance
+- **Local Wallet Management**: Secure local storage of wallet keys
+- **Position Tracking**: SQLite-based memory system tracks positions and trade history
+- **Simple CLI Interface**: Interactive menus for wallet, auth, and agent management
 
-### Trading logic (high level)
+## Installation
 
-- **Chain**: Base mainnet (EVM, chain id 8453)
-- **Tokens (Base)**:
-  - **USDC**: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`
-  - **WBTC**: `0x0555E30da8f98308EdB960aa94C0Db47230d2B9c`
-  - **WETH**: `0x4200000000000000000000000000000000000006`
-
-- **Allocation rules**
-  - For each `(wallet, agent)` pair, the agent manages a fixed allocation of **10 USDC** on Base
-  - On the **first run** for a given wallet/agent:
-    - Check the on-chain USDC balance
-    - If balance < 10 USDC → print an insufficient balance message and skip
-    - Else → record a 10 USDC allocation in the memory service
-
-- **Update (run once)**
-  - Fetch SentiChain reasoning
-  - Log and print each event (timestamp, event type, sentiment, summary)
-  - Count **bullish** vs **bearish**
-  - Let **USDC** be the base token and **WBTC**/**WETH** the quote token
-    - If **bullish > bearish**:
-      - If position is **USDC** → swap 10 USDC to WBTC/WETH and update memory to reflect quote position
-      - If already in **WBTC/WETH** → hold
-    - If **bearish > bullish**:
-      - If position is **USDC** → hold
-      - If in **WBTC/WETH** → swap back to **USDC** and update memory
-    - If fetch error or no clear bullish/bearish signal → skip
-
-- **Unwind**
-  - Independently of sentiment:
-    - If position is **WBTC/WETH** → swap back to **USDC** and update memory
-    - If already in **USDC** → do nothing
-
-### On-chain calls and safety
-
-- **Balance checks** use `web3` and a minimal ERC‑20 ABI to query Base
-- **Swap execution is implemented as a pluggable helper**:
-  - By default, swaps are **dry-run only**: the agent logs the intended trade (direction, amount) and **does not send any transaction**
-  - To enable real swaps, you will need to:
-    - Provide a compatible router address (e.g. a Uniswap V2-style router on Base)
-    - Wire it into the provided swap helper or replace it with your own integration
-  - This avoids accidental trading with real funds while still giving a clear template for how to implement live swaps.
-
-### Installation (editable development)
+### From PyPI (Recommended)
 
 ```bash
+pip install fundis
+```
+
+### From Source
+
+```bash
+git clone https://github.com/Yototec/fundis.git
+cd fundis
 pip install -e .
 ```
 
-### Usage
+## Quick Start
 
-- **Manage wallets**
-
-```bash
-fundis wallet
-```
-
-- **Run agents**
-
-```bash
-fundis agent
-```
-
-You’ll be guided through choosing an agent, a wallet, and whether to **update** or **unwind** the agent.
-
-- **Configure SentiChain API key**
+### 1. Set up your SentiChain API key
 
 ```bash
 fundis auth
 ```
 
-Use the menu to paste your SentiChain API key; agents will refuse to run until a key is configured.
-You can also configure a **premium Base RPC URL** here (Alchemy/Infura/etc). If omitted, the CLI uses
-the public Base RPC and internally rate-limits its own calls to avoid hitting 429s too frequently.
+Get your API key from [SentiChain](https://sentichain.com/)
 
-### Configuration
+### 2. Import a wallet
 
-- **Network and contracts (hard-coded)**
-  - **Base public RPC URL**: `https://mainnet.base.org` (used when no premium RPC is set)
-  - **Chain ID**: `8453`
-  - **Data directory**: `~/.fundis` (on Windows: typically `C:\Users\YOU\.fundis`)
-  - **USDC (Base)**: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`
-  - **WBTC (Base)**: `0x0555E30da8f98308EdB960aa94C0Db47230d2B9c`
-  - **WETH (Base)**: `0x4200000000000000000000000000000000000006`
-  - **Uniswap v3 SwapRouter (Base)**: `0x2626664c2603336E57B271c5C0b26F421741e481` (official Base deployment)
-  - **Uniswap v3 fee tier**: `0.3%` (`3000`) for all swaps
+```bash
+fundis wallet
+```
 
-### Security notice
+Import an EVM private key (with USDC funds on Base network)
 
-- Private keys are stored **unencrypted** in a local JSON file for simplicity
-- This is for prototyping only; **never use production keys** with this CLI as-is
-- Before real-money usage, add proper key encryption, secure key management, and audited swap integrations.
+### 3. Run an agent
 
+```bash
+fundis agent
+```
 
+Choose an agent (ETH or BTC) and select "Update agent" to execute trades
+
+## Available Agents
+
+- **SentiChain ETH Agent**: Trades USDC ↔ WETH based on Ethereum sentiment
+- **SentiChain BTC Agent**: Trades USDC ↔ WBTC based on Bitcoin sentiment
+
+## Trading Logic
+
+Each agent:
+1. Fetches latest sentiment events from SentiChain API
+2. Counts bullish vs bearish signals
+3. Makes trading decisions:
+   - **More bullish → Buy** (USDC → WETH/WBTC)
+   - **More bearish → Sell** (WETH/WBTC → USDC)
+   - **Equal signals → Hold** current position
+
+Agents manage a fixed allocation of **10 USDC** per wallet.
+
+## Network Configuration
+
+- **Network**: Base (Chain ID: 8453)
+- **DEX**: Aerodrome Finance
+- **Tokens**:
+  - USDC: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`
+  - WETH: `0x4200000000000000000000000000000000000006`
+  - WBTC: `0x0555E30da8f98308EdB960aa94C0Db47230d2B9c`
+
+## Commands
+
+### Wallet Management
+```bash
+fundis wallet
+```
+- Import wallet (private key)
+- Export wallet
+- Delete wallet
+- List wallets
+
+### API Key Management
+```bash
+fundis auth
+```
+- Set SentiChain API key
+- Configure premium RPC URL (optional)
+- Show current configuration
+- Delete stored keys
+
+### Agent Operations
+```bash
+fundis agent
+```
+- Select agent (ETH or BTC)
+- Choose wallet
+- Update agent (run trading logic once)
+- Unwind agent (return to USDC)
+
+## Data Storage
+
+All data is stored locally in `~/.fundis/`:
+- `wallets.json` - Encrypted wallet storage
+- `memory.db` - SQLite database for positions and logs
+- `auth.json` - API keys and RPC configuration
+
+## Security Considerations
+
+**Important Security Notes**:
+- Private keys are stored locally (use at your own risk)
+- Only use wallets you're comfortable with for testing
+- Start with small amounts to test the system
+- This is alpha software - bugs may exist
+
+## Requirements
+
+- Python 3.10+
+- Base network wallet with:
+  - At least 10 USDC for trading
+  - ETH for gas fees
+
+## Development
+
+```bash
+# Clone the repository
+git clone https://github.com/Yototec/fundis.git
+cd fundis
+
+# Install in development mode
+pip install -e .
+
+# Run tests (if available)
+pytest
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+## Disclaimer
+
+This software is for educational purposes. Trading cryptocurrencies carries significant risk. Users are responsible for their own trading decisions and should not rely solely on automated systems. Always do your own research and never invest more than you can afford to lose.
+
+## Support
+
+- GitHub Issues: [github.com/yototec/fundis/issues](https://github.com/yototec/fundis/issues)
+- SentiChain: [sentichain.com](https://sentichain.com/)
+
+## Acknowledgments
+
+- [SentiChain](https://sentichain.com/) for sentiment data
+- [Aerodrome Finance](https://aerodrome.finance/) for DEX infrastructure
+- Base network for low-cost EVM execution

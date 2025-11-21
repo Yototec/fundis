@@ -3,13 +3,13 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-platform"
+name = "fundis"
 version = "0.1.0"
-description = "Local web3 trading agent platform with SentiChain sentiment agents."
+description = "Web3 trading agents powered by SentiChain sentiment data on Base network"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-  { name = "Fundis", email = "dev@fundis.local" },
+  { name = "Edward Chen", email = "rchen@yototec.com" },
 ]
 license = { text = "MIT" }
 dependencies = [
@@ -17,6 +17,34 @@ dependencies = [
   "requests>=2.32.0,<3.0.0",
   "web3==7.12.0",
 ]
+keywords = [
+  "web3",
+  "trading",
+  "sentiment",
+  "crypto",
+  "defi",
+  "base",
+  "ethereum",
+  "sentichain",
+  "aerodrome",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/Yototec/fundis"
+Repository = "https://github.com/Yototec/fundis"
+"Bug Tracker" = "https://github.com/Yototec/fundis/issues"
 
 [project.scripts]
 fundis = "fundis.cli:app"
@@ -24,5 +52,3 @@ fundis = "fundis.cli:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["fundis*"]
-
-
