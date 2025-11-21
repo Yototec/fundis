@@ -138,7 +138,9 @@ def _select_wallet(store: WalletStore) -> Optional[int]:
     for idx, w in enumerate(store.wallets):
         typer.echo(f"[{idx}] {w.name} - {w.address}")
 
-    idx_str = typer.prompt("Select wallet index (or 'q' to cancel)", default="q").strip()
+    idx_str = typer.prompt(
+        "Select wallet index (or 'q' to cancel)", default="q"
+    ).strip()
     if idx_str.lower() in {"q", "quit", "exit"}:
         return None
     try:
@@ -272,7 +274,9 @@ def _auth_interactive_menu() -> None:
                 typer.echo("Empty key, nothing saved.")
                 continue
             save_sentichain_api_key(new_key)
-            typer.echo("SentiChain API key saved to local auth file (~/.fundis/auth.json).")
+            typer.echo(
+                "SentiChain API key saved to local auth file (~/.fundis/auth.json)."
+            )
         elif choice == "3":
             if not cfg or not cfg.sentichain_api_key:
                 typer.echo("No API key configured to delete.")
@@ -300,7 +304,9 @@ def _auth_interactive_menu() -> None:
                 typer.echo("Empty URL, nothing saved.")
                 continue
             save_premium_base_rpc_url(new_rpc)
-            typer.echo("Premium Base RPC endpoint saved to local auth file (~/.fundis/auth.json).")
+            typer.echo(
+                "Premium Base RPC endpoint saved to local auth file (~/.fundis/auth.json)."
+            )
         elif choice == "6":
             if not cfg or not cfg.premium_base_rpc_url:
                 typer.echo("No premium Base RPC endpoint configured to delete.")
@@ -312,5 +318,3 @@ def _auth_interactive_menu() -> None:
             break
         else:
             typer.echo("Unknown option.")
-
-

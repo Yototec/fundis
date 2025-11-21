@@ -37,4 +37,3 @@ AERODROME_ROUTER_ADDRESS = "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43"
 def ensure_data_dir() -> None:
     """Ensure that the data directory exists."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-

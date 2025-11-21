@@ -100,5 +100,3 @@ class WalletStore:
 
     def export_private_key(self, index: int) -> str:
         return self._wallets[index].private_key
-
-

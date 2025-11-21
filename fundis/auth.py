@@ -107,4 +107,3 @@ def clear_auth_config() -> None:
         AUTH_FILE.unlink()
     except FileNotFoundError:
         pass
-

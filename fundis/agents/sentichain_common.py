@@ -77,7 +77,9 @@ def _parse_reasoning_payload(payload: dict) -> List[SentimentEvent]:
     return events
 
 
-def fetch_sentichain_events(ticker: str, api_key: str, timeout: float = 10.0) -> List[SentimentEvent]:
+def fetch_sentichain_events(
+    ticker: str, api_key: str, timeout: float = 10.0
+) -> List[SentimentEvent]:
     url = SENTICHAIN_ENDPOINT.format(ticker=ticker, api_key=api_key)
     resp = requests.get(url, timeout=timeout)
     resp.raise_for_status()
@@ -85,15 +87,15 @@ def fetch_sentichain_events(ticker: str, api_key: str, timeout: float = 10.0) ->
     return _parse_reasoning_payload(payload)
 
 
-def _pretty_print_events(ctx: AgentContext, agent_name: str, events: List[SentimentEvent]) -> None:
+def _pretty_print_events(
+    ctx: AgentContext, agent_name: str, events: List[SentimentEvent]
+) -> None:
     if not events:
         ctx.print("No sentiment events available.")
         return
     ctx.print(f"--- {agent_name} latest sentiment events ({len(events)}) ---")
     for e in events:
-        ctx.print(
-            f"{e.timestamp} | [{e.event}] sentiment={e.sentiment} :: {e.summary}"
-        )
+        ctx.print(f"{e.timestamp} | [{e.event}] sentiment={e.sentiment} :: {e.summary}")
 
 
 def _sentiment_counts(events: List[SentimentEvent]) -> Counter:
@@ -178,7 +180,9 @@ def _ensure_allocation(
     return pos
 
 
-def _log_and_print(memory: MemoryService, ctx: AgentContext, agent_name: str, msg: str) -> None:
+def _log_and_print(
+    memory: MemoryService, ctx: AgentContext, agent_name: str, msg: str
+) -> None:
     ctx.print(msg)
     memory.log(msg, wallet_address=ctx.wallet_address, agent_name=agent_name)
 
@@ -197,17 +201,17 @@ def _perform_swap(
 ) -> bool:
     """
     Perform a swap on Aerodrome Finance on Base.
-    
+
     Aerodrome is the primary DEX on Base with deep liquidity for major pairs.
     """
     from ..aerodrome import try_aerodrome_swap_simulation, build_aerodrome_swap_tx
-    
+
     w3: Web3 = ctx.web3
     wallet = to_checksum(w3, ctx.wallet_address)
     router_address = to_checksum(w3, AERODROME_ROUTER_ADDRESS)
     token_in = to_checksum(w3, from_token_address)
     token_out = to_checksum(w3, to_token_address)
-    
+
     token_in_contract = w3.eth.contract(address=token_in, abi=ERC20_MINIMAL_ABI)
 
     # Log context
@@ -224,7 +228,7 @@ def _perform_swap(
         result = try_aerodrome_swap_simulation(
             w3, from_token_address, to_token_address, amount_raw, wallet
         )
-        
+
         if not result:
             _log_and_print(
                 memory,
@@ -234,7 +238,7 @@ def _perform_swap(
                 "Cannot execute swap.",
             )
             return False
-            
+
         output_amount, routes = result
         _log_and_print(
             memory,
@@ -242,7 +246,7 @@ def _perform_swap(
             agent_name,
             f"Found liquidity on Aerodrome! Expected output: {output_amount}",
         )
-        
+
     except Exception as exc:  # noqa: BLE001
         _log_and_print(
             memory,
@@ -347,12 +351,19 @@ def _perform_swap(
 
     # 3) Execute the swap
     deadline = int(time.time()) + 900  # 15 minutes
-    
+
     try:
         swap_tx = build_aerodrome_swap_tx(
-            w3, wallet, ctx.private_key,
-            amount_raw, 0, routes, deadline,  # 0 for amountOutMin (no slippage protection for now)
-            nonce, gas_price, ctx.chain_id
+            w3,
+            wallet,
+            ctx.private_key,
+            amount_raw,
+            0,
+            routes,
+            deadline,  # 0 for amountOutMin (no slippage protection for now)
+            nonce,
+            gas_price,
+            ctx.chain_id,
         )
         signed_swap = w3.eth.account.sign_transaction(
             swap_tx, private_key=ctx.private_key
@@ -547,7 +558,9 @@ def run_update_generic(
                 amount_raw=amount_raw,
             )
             if ok:
-                memory.update_position_side(ctx.wallet_address, agent_name, quote_symbol)
+                memory.update_position_side(
+                    ctx.wallet_address, agent_name, quote_symbol
+                )
         else:
             _log_and_print(
                 memory,

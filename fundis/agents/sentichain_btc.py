@@ -29,5 +29,3 @@ def run_unwind(ctx: AgentContext) -> None:
         quote_token=QUOTE_TOKEN,
         quote_symbol=QUOTE_SYMBOL,
     )
-
-

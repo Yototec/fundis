@@ -182,5 +182,3 @@ class MemoryService:
 
     def close(self) -> None:
         self._conn.close()
-
-

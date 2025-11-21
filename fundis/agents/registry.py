@@ -29,5 +29,3 @@ def list_agent_names() -> List[str]:
 
 def get_agent(name: str) -> AgentModule:
     return AGENTS[name]
-
-

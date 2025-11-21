@@ -127,4 +127,3 @@ def get_erc20_balance(
     raw = contract.functions.balanceOf(to_checksum(w3, wallet_address)).call()
     human = Decimal(raw) / Decimal(10**info.decimals)
     return human, raw, info
-
