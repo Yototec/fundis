@@ -330,11 +330,18 @@ def _perform_swap(
             )
             return False
 
+        # Log approval success with BaseScan URL
+        approve_hash_hex = approve_hash.hex() if hasattr(approve_hash, 'hex') else str(approve_hash)
+        if not approve_hash_hex.startswith('0x'):
+            approve_hash_hex = f'0x{approve_hash_hex}'
+        approve_url = f"https://basescan.org/tx/{approve_hash_hex}"
+        
         _log_and_print(
             memory,
             ctx,
             agent_name,
-            f"Approval confirmed in block {approve_receipt.blockNumber}. Proceeding to swap...",
+            f"Approval confirmed in block {approve_receipt.blockNumber}. "
+            f"View on BaseScan: {approve_url}. Proceeding to swap...",
         )
 
         # Refresh nonce after approval
@@ -396,11 +403,18 @@ def _perform_swap(
         )
         return False
 
+    # Log success with BaseScan URL for transaction tracking
+    tx_hash_hex = swap_hash.hex() if hasattr(swap_hash, 'hex') else str(swap_hash)
+    if not tx_hash_hex.startswith('0x'):
+        tx_hash_hex = f'0x{tx_hash_hex}'
+    basescan_url = f"https://basescan.org/tx/{tx_hash_hex}"
+    
     _log_and_print(
         memory,
         ctx,
         agent_name,
-        f"Swap transaction confirmed in block {swap_receipt.blockNumber}!",
+        f"Swap confirmed! {amount_human} {from_token_symbol} -> {to_token_symbol} "
+        f"in block {swap_receipt.blockNumber}. View on BaseScan: {basescan_url}",
     )
     return True
 

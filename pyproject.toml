@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fundis"
-version = "0.1.0"
+version = "0.1.1"
 description = "Web3 trading agents powered by SentiChain sentiment data on Base network"
 readme = "README.md"
 requires-python = ">=3.10"
