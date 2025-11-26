@@ -27,19 +27,7 @@ from .hyperliquid import (
     get_usdc_balance as get_hyperliquid_usdc_balance,
 )
 
-# Hyperliquid Bridge ABI (minimal - just the deposit function)
-# The bridge accepts USDC deposits and credits them to your Hyperliquid account
-HYPERLIQUID_BRIDGE_ABI = [
-    {
-        "inputs": [{"internalType": "uint64", "name": "amount", "type": "uint64"}],
-        "name": "deposit",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-]
-
-# ERC20 minimal ABI for USDC
+# ERC20 minimal ABI for USDC (includes transfer for bridge deposits)
 ERC20_ABI = [
     {
         "inputs": [{"name": "account", "type": "address"}],
@@ -66,6 +54,16 @@ ERC20_ABI = [
         "name": "allowance",
         "outputs": [{"name": "", "type": "uint256"}],
         "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"name": "to", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "name": "transfer",
+        "outputs": [{"name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
         "type": "function",
     },
     {
@@ -128,13 +126,6 @@ def get_arbitrum_eth_balance(w3: Web3, wallet_address: str) -> Decimal:
     return Decimal(raw_balance) / Decimal(10**18)
 
 
-def estimate_deposit_gas(w3: Web3) -> int:
-    """Estimate gas needed for approval + deposit."""
-    # Approval typically costs ~50k gas, deposit ~100k gas
-    # Adding buffer for safety
-    return 200_000
-
-
 def deposit_usdc_to_hyperliquid(
     w3: Web3,
     wallet_address: str,
@@ -145,10 +136,9 @@ def deposit_usdc_to_hyperliquid(
     """
     Deposit USDC from Arbitrum to Hyperliquid.
 
-    This function:
-    1. Checks USDC and ETH balances
-    2. Approves USDC for the Hyperliquid bridge (if needed)
-    3. Calls the bridge deposit function
+    This function performs a direct ERC-20 transfer of USDC to the Hyperliquid
+    bridge address. The bridge automatically credits your Hyperliquid account
+    within a few minutes.
 
     Args:
         w3: Web3 instance connected to Arbitrum
@@ -173,9 +163,8 @@ def deposit_usdc_to_hyperliquid(
             error="Minimum deposit is 5 USDC",
         )
 
-    # Get contracts
+    # Get USDC contract
     usdc = w3.eth.contract(address=usdc_address, abi=ERC20_ABI)
-    bridge = w3.eth.contract(address=bridge_address, abi=HYPERLIQUID_BRIDGE_ABI)
 
     # Check balances
     print_fn("Checking balances on Arbitrum...")
@@ -205,9 +194,9 @@ def deposit_usdc_to_hyperliquid(
             error=f"Insufficient USDC: have {usdc_balance:.2f}, need {amount_usdc:.2f}",
         )
 
-    # Estimate gas cost (rough)
+    # Estimate gas cost (ERC20 transfer typically ~65k gas)
     gas_price = w3.eth.gas_price
-    estimated_gas = estimate_deposit_gas(w3)
+    estimated_gas = 100_000  # Buffer for safety
     estimated_cost_wei = gas_price * estimated_gas
     estimated_cost_eth = Decimal(estimated_cost_wei) / Decimal(10**18)
 
@@ -221,104 +210,48 @@ def deposit_usdc_to_hyperliquid(
 
     print_fn(f"Estimated gas cost: ~{estimated_cost_eth:.6f} ETH")
 
-    # Check allowance and approve if needed (always check, as user may have revoked)
-    # Use max approval (2**256 - 1) to avoid repeated approvals
-    MAX_APPROVAL = 2**256 - 1
+    # Execute deposit via direct USDC transfer to bridge address
+    # No approval needed - this is a direct transfer, not approve+transferFrom
+    print_fn(f"Transferring {amount_usdc} USDC to Hyperliquid bridge...")
 
     try:
-        allowance = usdc.functions.allowance(wallet, bridge_address).call()
-        print_fn(f"Current USDC allowance for bridge: {allowance / 1_000_000:.2f}")
-    except Exception as exc:
-        return DepositResult(
-            success=False,
-            tx_hash=None,
-            amount_deposited=0,
-            error=f"Error checking allowance: {exc!r}",
-        )
+        nonce = w3.eth.get_transaction_count(wallet, "pending")
 
-    nonce = w3.eth.get_transaction_count(wallet, "pending")
-
-    if allowance < amount_raw:
-        print_fn("Approving max USDC for Hyperliquid bridge (one-time approval)...")
-
-        try:
-            # Approve for max amount to avoid repeated approvals
-            approve_tx = usdc.functions.approve(
-                bridge_address, MAX_APPROVAL
-            ).build_transaction(
-                {
-                    "from": wallet,
-                    "nonce": nonce,
-                    "gas": 100_000,
-                    "gasPrice": gas_price,
-                    "chainId": ARBITRUM_CHAIN_ID,
-                }
-            )
-
-            signed_approve = w3.eth.account.sign_transaction(approve_tx, private_key)
-            approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
-
-            print_fn(f"Approval tx sent: {approve_hash.hex()}")
-            print_fn("Waiting for confirmation...")
-
-            approve_receipt = w3.eth.wait_for_transaction_receipt(
-                approve_hash, timeout=120
-            )
-
-            if approve_receipt.status != 1:
-                return DepositResult(
-                    success=False,
-                    tx_hash=approve_hash.hex(),
-                    amount_deposited=0,
-                    error="Approval transaction failed",
-                )
-
-            print_fn(f"Max approval confirmed in block {approve_receipt.blockNumber}.")
-            nonce += 1
-
-        except Exception as exc:
-            return DepositResult(
-                success=False,
-                tx_hash=None,
-                amount_deposited=0,
-                error=f"Approval failed: {exc!r}",
-            )
-
-    # Execute deposit
-    print_fn(f"Depositing {amount_usdc} USDC to Hyperliquid...")
-
-    try:
-        # The bridge deposit function takes amount as uint64 (in USDC's smallest unit)
-        deposit_tx = bridge.functions.deposit(amount_raw).build_transaction(
+        # Build the ERC20 transfer transaction
+        transfer_tx = usdc.functions.transfer(
+            bridge_address, amount_raw
+        ).build_transaction(
             {
                 "from": wallet,
                 "nonce": nonce,
-                "gas": 150_000,
+                "gas": 100_000,
                 "gasPrice": gas_price,
                 "chainId": ARBITRUM_CHAIN_ID,
             }
         )
 
-        signed_deposit = w3.eth.account.sign_transaction(deposit_tx, private_key)
-        deposit_hash = w3.eth.send_raw_transaction(signed_deposit.raw_transaction)
+        signed_transfer = w3.eth.account.sign_transaction(transfer_tx, private_key)
+        transfer_hash = w3.eth.send_raw_transaction(signed_transfer.raw_transaction)
 
-        print_fn(f"Deposit tx sent: {deposit_hash.hex()}")
+        print_fn(f"Transfer tx sent: {transfer_hash.hex()}")
         print_fn("Waiting for confirmation...")
 
-        deposit_receipt = w3.eth.wait_for_transaction_receipt(deposit_hash, timeout=120)
+        transfer_receipt = w3.eth.wait_for_transaction_receipt(
+            transfer_hash, timeout=120
+        )
 
-        if deposit_receipt.status != 1:
+        if transfer_receipt.status != 1:
             return DepositResult(
                 success=False,
-                tx_hash=deposit_hash.hex(),
+                tx_hash=transfer_hash.hex(),
                 amount_deposited=0,
-                error="Deposit transaction reverted",
+                error="Transfer transaction reverted",
             )
 
-        tx_hash_hex = deposit_hash.hex()
+        tx_hash_hex = transfer_hash.hex()
         arbiscan_url = f"https://arbiscan.io/tx/{tx_hash_hex}"
 
-        print_fn(f"Deposit confirmed in block {deposit_receipt.blockNumber}.")
+        print_fn(f"Transfer confirmed in block {transfer_receipt.blockNumber}.")
         print_fn(f"View on Arbiscan: {arbiscan_url}")
         print_fn("")
         print_fn("Note: Your USDC should appear on Hyperliquid within a few minutes.")
