@@ -13,6 +13,8 @@ from requests import HTTPError
 from web3 import Web3
 from web3.exceptions import ContractLogicError
 
+from ..aerodrome import build_aerodrome_swap_tx, try_aerodrome_swap_simulation
+from ..auth import load_auth_config
 from ..config import (
     AERODROME_ROUTER_ADDRESS,
     USDC_ADDRESS,
@@ -115,16 +117,23 @@ def _ensure_allocation(
     memory: MemoryService,
 ) -> Position | None:
     """
-    Ensure a 10 USDC allocation exists for (wallet, agent).
+    Ensure a USDC allocation exists for (wallet, agent).
 
-    If the wallet holds < 10 USDC on Base, log and return None.
+    Uses ctx.allocation_usdc for the target amount (default 10 USDC).
+    The allocation is stored as the user's desired maximum.
+    Actual trades will use min(balance, allocation) to prevent failures.
     """
     wallet = ctx.wallet_address
     existing = memory.get_position(wallet, agent_name)
     if existing:
         return existing
 
-    ctx.print("No existing allocation found. Checking USDC balance on Base...")
+    allocation_amount = ctx.allocation_usdc
+    ctx.print(
+        f"No existing allocation found. Setting up {allocation_amount} USDC allocation..."
+    )
+    ctx.print("Checking USDC balance on Base...")
+
     w3 = get_web3()
     try:
         human, raw, info = get_erc20_balance(w3, USDC_ADDRESS, wallet)
@@ -143,18 +152,29 @@ def _ensure_allocation(
         _log_and_print(memory, ctx, agent_name, msg)
         return None
 
-    needed = Decimal("10")
-    if human < needed:
+    # Check if wallet has any USDC at all
+    if human <= 0:
         msg = (
-            f"Insufficient USDC balance for allocation: have {human} {info.symbol}, "
-            f"need at least {needed} {info.symbol}. Skipping run."
+            f"No USDC balance found on Base. "
+            f"Please add USDC to your wallet before running the agent."
         )
         ctx.print(msg)
         memory.log(msg, wallet_address=wallet, agent_name=agent_name, level="WARN")
         return None
 
-    allocated_amount = float(needed)
-    allocated_amount_raw = int(needed * Decimal(10**info.decimals))
+    # Store the user's desired allocation (even if current balance is lower)
+    # Actual trades will use min(balance, allocation)
+    allocated_amount = float(allocation_amount)
+    allocated_amount_raw = int(
+        Decimal(str(allocation_amount)) * Decimal(10**info.decimals)
+    )
+
+    # Inform user if their balance is lower than requested allocation
+    if human < Decimal(str(allocation_amount)):
+        ctx.print(
+            f"Note: Current balance ({human} USDC) is less than requested allocation "
+            f"({allocation_amount} USDC). Agent will use available balance up to allocation cap."
+        )
 
     pos = Position(
         wallet_address=wallet,
@@ -175,7 +195,7 @@ def _ensure_allocation(
     )
     ctx.print(
         f"Allocated {allocated_amount} USDC for this agent. "
-        f"Subsequent runs will trade within this allocation."
+        f"Trades will use min(balance, {allocated_amount}) USDC."
     )
     return pos
 
@@ -204,8 +224,6 @@ def _perform_swap(
 
     Aerodrome is the primary DEX on Base with deep liquidity for major pairs.
     """
-    from ..aerodrome import try_aerodrome_swap_simulation, build_aerodrome_swap_tx
-
     w3: Web3 = ctx.web3
     wallet = to_checksum(w3, ctx.wallet_address)
     router_address = to_checksum(w3, AERODROME_ROUTER_ADDRESS)
@@ -256,7 +274,10 @@ def _perform_swap(
         )
         return False
 
-    # 2) Check and handle allowance
+    # 2) Check and handle allowance (always check, as user may have revoked)
+    # Use max approval (2**256 - 1) to avoid repeated approvals
+    MAX_APPROVAL = 2**256 - 1
+
     try:
         allowance = token_in_contract.functions.allowance(wallet, router_address).call()
     except Exception as exc:  # noqa: BLE001
@@ -286,12 +307,13 @@ def _perform_swap(
             memory,
             ctx,
             agent_name,
-            f"Current allowance for {from_token_symbol} is {allowance}, "
-            f"needs to be at least {amount_raw}. Sending approval transaction...",
+            f"Current allowance for {from_token_symbol} is insufficient. "
+            f"Sending max approval transaction...",
         )
         try:
+            # Approve for max amount to avoid repeated approvals
             approve_tx = token_in_contract.functions.approve(
-                router_address, amount_raw
+                router_address, MAX_APPROVAL
             ).build_transaction(
                 {
                     "from": wallet,
@@ -331,16 +353,18 @@ def _perform_swap(
             return False
 
         # Log approval success with BaseScan URL
-        approve_hash_hex = approve_hash.hex() if hasattr(approve_hash, 'hex') else str(approve_hash)
-        if not approve_hash_hex.startswith('0x'):
-            approve_hash_hex = f'0x{approve_hash_hex}'
+        approve_hash_hex = (
+            approve_hash.hex() if hasattr(approve_hash, "hex") else str(approve_hash)
+        )
+        if not approve_hash_hex.startswith("0x"):
+            approve_hash_hex = f"0x{approve_hash_hex}"
         approve_url = f"https://basescan.org/tx/{approve_hash_hex}"
-        
+
         _log_and_print(
             memory,
             ctx,
             agent_name,
-            f"Approval confirmed in block {approve_receipt.blockNumber}. "
+            f"Max approval confirmed in block {approve_receipt.blockNumber}. "
             f"View on BaseScan: {approve_url}. Proceeding to swap...",
         )
 
@@ -404,11 +428,11 @@ def _perform_swap(
         return False
 
     # Log success with BaseScan URL for transaction tracking
-    tx_hash_hex = swap_hash.hex() if hasattr(swap_hash, 'hex') else str(swap_hash)
-    if not tx_hash_hex.startswith('0x'):
-        tx_hash_hex = f'0x{tx_hash_hex}'
+    tx_hash_hex = swap_hash.hex() if hasattr(swap_hash, "hex") else str(swap_hash)
+    if not tx_hash_hex.startswith("0x"):
+        tx_hash_hex = f"0x{tx_hash_hex}"
     basescan_url = f"https://basescan.org/tx/{tx_hash_hex}"
-    
+
     _log_and_print(
         memory,
         ctx,
@@ -431,8 +455,6 @@ def run_update_generic(
     """
     Shared update logic for SentiChain agents.
     """
-    from ..auth import load_auth_config
-
     memory = ctx.memory
 
     # Resolve API key from argument or local auth config.
@@ -542,13 +564,14 @@ def run_update_generic(
     # Decision logic
     if bullish > bearish:
         if side == "USDC":
-            # Long the asset: swap up to the allocated 10 USDC -> quote token
+            # Long the asset: swap up to the allocation (or available balance if lower)
             msg = f"More bullish than bearish. Plan: LONG {ticker} (USDC -> {quote_symbol})."
             _log_and_print(memory, ctx, agent_name, msg)
 
             usdc_human, usdc_raw, usdc_info = get_erc20_balance(
                 w3, USDC_ADDRESS, ctx.wallet_address
             )
+            # Use min of balance and allocation to prevent failures
             amount_raw = min(usdc_raw, pos.allocated_amount_raw)
             if amount_raw <= 0:
                 _log_and_print(
@@ -559,6 +582,15 @@ def run_update_generic(
                 )
                 return
             amount_human = float(Decimal(amount_raw) / Decimal(10**usdc_info.decimals))
+
+            # Log if using less than full allocation
+            if usdc_raw < pos.allocated_amount_raw:
+                _log_and_print(
+                    memory,
+                    ctx,
+                    agent_name,
+                    f"Using available balance {amount_human} USDC (allocation: {pos.allocated_amount} USDC).",
+                )
 
             ok = _perform_swap(
                 ctx,

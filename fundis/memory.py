@@ -4,9 +4,21 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .config import MEMORY_DB_PATH, ensure_data_dir
+
+
+@dataclass
+class LogEntry:
+    """A single log entry from agent communications."""
+
+    id: int
+    created_at: str
+    wallet_address: str | None
+    agent_name: str | None
+    level: str
+    message: str
 
 
 @dataclass
@@ -95,6 +107,145 @@ class MemoryService:
             ),
         )
         self._conn.commit()
+
+    def get_logs(
+        self,
+        wallet_address: str | None = None,
+        agent_name: str | None = None,
+        level: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[LogEntry]:
+        """
+        Retrieve historical logs with optional filters.
+
+        Args:
+            wallet_address: Filter by wallet address (optional)
+            agent_name: Filter by agent name (optional)
+            level: Filter by log level (optional)
+            limit: Maximum number of logs to return (default 50)
+            offset: Number of logs to skip (for pagination)
+
+        Returns:
+            List of LogEntry objects, newest first
+        """
+        cur = self._conn.cursor()
+
+        conditions = []
+        params = []
+
+        if wallet_address:
+            conditions.append("wallet_address = ?")
+            params.append(wallet_address)
+        if agent_name:
+            conditions.append("agent_name = ?")
+            params.append(agent_name)
+        if level:
+            conditions.append("level = ?")
+            params.append(level)
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        query = f"""
+            SELECT id, created_at, wallet_address, agent_name, level, message
+            FROM logs
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        params.extend([limit, offset])
+
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+        return [
+            LogEntry(
+                id=row["id"],
+                created_at=row["created_at"],
+                wallet_address=row["wallet_address"],
+                agent_name=row["agent_name"],
+                level=row["level"],
+                message=row["message"],
+            )
+            for row in rows
+        ]
+
+    def get_log_count(
+        self,
+        wallet_address: str | None = None,
+        agent_name: str | None = None,
+        level: str | None = None,
+    ) -> int:
+        """Get total count of logs matching filters."""
+        cur = self._conn.cursor()
+
+        conditions = []
+        params = []
+
+        if wallet_address:
+            conditions.append("wallet_address = ?")
+            params.append(wallet_address)
+        if agent_name:
+            conditions.append("agent_name = ?")
+            params.append(agent_name)
+        if level:
+            conditions.append("level = ?")
+            params.append(level)
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        query = f"SELECT COUNT(*) as cnt FROM logs {where_clause}"
+        cur.execute(query, params)
+        row = cur.fetchone()
+        return row["cnt"] if row else 0
+
+    def get_distinct_agents(self) -> List[str]:
+        """Get list of distinct agent names that have logs."""
+        cur = self._conn.cursor()
+        cur.execute(
+            """
+            SELECT DISTINCT agent_name FROM logs
+            WHERE agent_name IS NOT NULL
+            ORDER BY agent_name
+            """
+        )
+        return [row["agent_name"] for row in cur.fetchall()]
+
+    def clear_logs(
+        self,
+        wallet_address: str | None = None,
+        agent_name: str | None = None,
+    ) -> int:
+        """
+        Clear logs matching filters. Returns number of deleted rows.
+
+        If no filters provided, clears ALL logs.
+        """
+        cur = self._conn.cursor()
+
+        conditions = []
+        params = []
+
+        if wallet_address:
+            conditions.append("wallet_address = ?")
+            params.append(wallet_address)
+        if agent_name:
+            conditions.append("agent_name = ?")
+            params.append(agent_name)
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+
+        query = f"DELETE FROM logs {where_clause}"
+        cur.execute(query, params)
+        deleted = cur.rowcount
+        self._conn.commit()
+        return deleted
 
     # ------------------------------------------------------------------ #
     # Positions

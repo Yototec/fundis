@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Protocol, runtime_checkable
 
 from .base import AgentContext
-from . import sentichain_eth, sentichain_btc
+from . import sentichain_eth, sentichain_btc, sentichain_btc_hyperliquid
 
 
 @runtime_checkable
@@ -20,6 +20,7 @@ class AgentModule(Protocol):
 AGENTS: Dict[str, AgentModule] = {
     sentichain_eth.AGENT_NAME: sentichain_eth,
     sentichain_btc.AGENT_NAME: sentichain_btc,
+    sentichain_btc_hyperliquid.AGENT_NAME: sentichain_btc_hyperliquid,
 }
 
 

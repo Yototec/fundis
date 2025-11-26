@@ -11,6 +11,10 @@ from ..memory import MemoryService
 PrintFn = Callable[[str], None]
 
 
+# Default allocation amount in USDC
+DEFAULT_ALLOCATION_USDC: float = 10.0
+
+
 @dataclass
 class AgentContext:
     """
@@ -23,6 +27,7 @@ class AgentContext:
     - ctx.memory: MemoryService instance for logging and positions
     - ctx.print: function to print messages back to the CLI
     - ctx.chain_id: EVM chain id (Base mainnet by default)
+    - ctx.allocation_usdc: allocation amount in USDC (default 10.0)
     """
 
     web3: Web3
@@ -31,3 +36,4 @@ class AgentContext:
     memory: MemoryService
     print: PrintFn
     chain_id: int
+    allocation_usdc: float = DEFAULT_ALLOCATION_USDC
