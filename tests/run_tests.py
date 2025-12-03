@@ -13,6 +13,7 @@ Categories:
     balance     - Check balances on all networks
     logs        - Test logging functionality
     summary     - Print wallet summary
+    signals     - Test SentiChain trading signal API
     all-safe    - Run all tests that don't involve transactions
     
 For real transaction tests, use pytest directly:
@@ -34,12 +35,15 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         print("\nAvailable test categories:")
-        print("  unit      - Unit tests (no network)")
-        print("  connect   - Connection tests")
-        print("  balance   - Balance checks")
-        print("  logs      - Logging tests")
-        print("  summary   - Wallet summary")
-        print("  all-safe  - All safe tests")
+        print("  unit       - Unit tests (no network)")
+        print("  connect    - Connection tests")
+        print("  balance    - Balance checks")
+        print("  logs       - Logging tests")
+        print("  signals    - Trading signal API tests")
+        print("  summary    - Wallet summary")
+        print("  hyperliquid - Hyperliquid tests")
+        print("  bridge     - Bridge tests")
+        print("  all-safe   - All safe tests")
         return 0
 
     category = sys.argv[1].lower()
@@ -56,6 +60,9 @@ def main():
     elif category == "logs":
         return run_pytest(["tests/test_integration.py::TestLogs", "-v", "-s"])
 
+    elif category == "signals":
+        return run_pytest(["tests/test_integration.py::TestTradingSignals", "-v", "-s"])
+
     elif category == "summary":
         return run_pytest(["tests/test_integration.py::TestSummary", "-v", "-s"])
 
@@ -65,9 +72,6 @@ def main():
     elif category == "bridge":
         return run_pytest(["tests/test_integration.py::TestBridge", "-v", "-s"])
 
-    elif category == "base":
-        return run_pytest(["tests/test_integration.py::TestBaseAgent", "-v", "-s"])
-
     elif category == "all-safe":
         # Run all tests except those marked as skip
         return run_pytest(
@@ -76,11 +80,10 @@ def main():
                 "tests/test_integration.py::TestConnections",
                 "tests/test_integration.py::TestBalances",
                 "tests/test_integration.py::TestLogs",
+                "tests/test_integration.py::TestTradingSignals",
                 "tests/test_integration.py::TestHyperliquid::test_hyperliquid_position_check",
                 "tests/test_integration.py::TestHyperliquid::test_hyperliquid_margin_check",
                 "tests/test_integration.py::TestBridge::test_bridge_balance_checks",
-                "tests/test_integration.py::TestBaseAgent::test_aerodrome_liquidity_check",
-                "tests/test_integration.py::TestBaseAgent::test_allowance_check",
                 "tests/test_integration.py::TestCustomAllocation",
                 "tests/test_integration.py::TestSummary",
                 "-v",

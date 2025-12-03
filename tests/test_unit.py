@@ -21,12 +21,10 @@ class TestAgentContext:
 
         # Create context with defaults
         ctx = AgentContext(
-            web3=MagicMock(),
             wallet_address="0x1234",
             private_key="0xabc",
             memory=MagicMock(),
             print=print,
-            chain_id=8453,
         )
         assert ctx.allocation_usdc == 10.0
 
@@ -35,12 +33,10 @@ class TestAgentContext:
         from fundis.agents.base import AgentContext
 
         ctx = AgentContext(
-            web3=MagicMock(),
             wallet_address="0x1234",
             private_key="0xabc",
             memory=MagicMock(),
             print=print,
-            chain_id=8453,
             allocation_usdc=50.0,
         )
         assert ctx.allocation_usdc == 50.0
@@ -240,18 +236,6 @@ class TestConfigModule:
         assert ARBITRUM_USDC_ADDRESS.startswith("0x")
         assert HYPERLIQUID_BRIDGE_ADDRESS.startswith("0x")
 
-    def test_base_config(self):
-        """Base config should be present."""
-        from fundis.config import (
-            BASE_CHAIN_ID,
-            BASE_RPC_URL,
-            USDC_ADDRESS,
-        )
-
-        assert BASE_CHAIN_ID == 8453
-        assert "base" in BASE_RPC_URL.lower()
-        assert USDC_ADDRESS.startswith("0x")
-
 
 class TestAllocationLogic:
     """Test allocation logic (min of balance and allocation)."""
@@ -286,6 +270,113 @@ class TestMaxApproval:
             MAX_APPROVAL
             == 115792089237316195423570985008687907853269984665640564039457584007913129639935
         )
+
+
+class TestAgentRegistry:
+    """Test agent registry."""
+
+    def test_list_agent_names(self):
+        """Should list available agents."""
+        from fundis.agents.registry import list_agent_names
+
+        names = list_agent_names()
+        assert "SentiChain BTC Agent on Hyperliquid" in names
+        assert "SentiChain ETH Agent on Hyperliquid" in names
+        assert len(names) == 2
+
+    def test_get_agent(self):
+        """Should get agent module by name."""
+        from fundis.agents.registry import get_agent
+
+        agent = get_agent("SentiChain BTC Agent on Hyperliquid")
+        assert hasattr(agent, "run_update")
+        assert hasattr(agent, "run_unwind")
+        assert agent.AGENT_NAME == "SentiChain BTC Agent on Hyperliquid"
+
+
+class TestTradingSignalParsing:
+    """Test trading signal parsing from SentiChain API."""
+
+    def test_parse_trading_signal(self):
+        """Should parse trading signal JSON correctly."""
+        from fundis.agents.sentichain_btc_hyperliquid import _parse_trading_signal
+
+        payload = {
+            "reasoning": '''```json
+{
+    "ticker": "BTC",
+    "timestamp": "2025-12-01T13:15:00Z",
+    "signal": {
+        "direction": "LONG",
+        "confidence": 0.8,
+        "strength": "STRONG"
+    },
+    "position": {
+        "sizing": "HALF",
+        "max_allocation_pct": 10,
+        "leverage_recommended": "NONE"
+    },
+    "timing": {
+        "urgency": "IMMEDIATE",
+        "suggested_entry": "Enter on breakout",
+        "timeframe": "1-3 days"
+    },
+    "risk_management": {
+        "stop_loss_condition": "Close below 80000",
+        "take_profit_condition": "Scale at 100000",
+        "invalidation": "Daily close below 80000"
+    },
+    "metadata": {
+        "data_quality": "HIGH",
+        "conviction_score": 8,
+        "risk_rating": "MEDIUM"
+    }
+}
+```'''
+        }
+
+        signal = _parse_trading_signal(payload)
+        assert signal is not None
+        assert signal.ticker == "BTC"
+        assert signal.direction == "LONG"
+        assert signal.confidence == 0.8
+        assert signal.strength == "STRONG"
+        assert signal.conviction_score == 8
+
+    def test_parse_trading_signal_short(self):
+        """Should parse SHORT signal correctly."""
+        from fundis.agents.sentichain_btc_hyperliquid import _parse_trading_signal
+
+        payload = {
+            "reasoning": '''```json
+{
+    "ticker": "BTC",
+    "timestamp": "2025-12-01T13:15:00Z",
+    "signal": {
+        "direction": "SHORT",
+        "confidence": 0.6,
+        "strength": "MODERATE"
+    },
+    "position": {"sizing": "QUARTER", "max_allocation_pct": 5},
+    "timing": {"urgency": "IMMEDIATE"},
+    "risk_management": {},
+    "metadata": {"conviction_score": 6, "risk_rating": "HIGH"}
+}
+```'''
+        }
+
+        signal = _parse_trading_signal(payload)
+        assert signal is not None
+        assert signal.direction == "SHORT"
+        assert signal.confidence == 0.6
+
+    def test_parse_trading_signal_empty(self):
+        """Should return None for empty payload."""
+        from fundis.agents.sentichain_btc_hyperliquid import _parse_trading_signal
+
+        assert _parse_trading_signal({}) is None
+        assert _parse_trading_signal({"reasoning": ""}) is None
+        assert _parse_trading_signal({"reasoning": "invalid"}) is None
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """
-SentiChain BTC Agent on Hyperliquid.
+SentiChain ETH Agent on Hyperliquid.
 
 This agent uses SentiChain's product_trading_signal to make trading decisions
 and executes long-only positions on Hyperliquid perpetuals.
@@ -33,9 +33,9 @@ from ..memory import MemoryService, Position
 from .base import AgentContext
 
 
-AGENT_NAME = "SentiChain BTC Agent on Hyperliquid"
-TICKER = "BTC"
-COIN = "BTC"
+AGENT_NAME = "SentiChain ETH Agent on Hyperliquid"
+TICKER = "ETH"
+COIN = "ETH"
 
 SENTICHAIN_TRADING_SIGNAL_ENDPOINT = (
     "https://api.sentichain.com/agent/get_reasoning_last"
@@ -289,7 +289,7 @@ def _open_long_position(
     ctx: AgentContext,
     memory: MemoryService,
 ) -> bool:
-    """Open a long BTC position on Hyperliquid."""
+    """Open a long ETH position on Hyperliquid."""
     wallet = ctx.wallet_address
 
     pos = memory.get_position(wallet, AGENT_NAME)
@@ -353,7 +353,7 @@ def _close_long_position(
     ctx: AgentContext,
     memory: MemoryService,
 ) -> bool:
-    """Close the long BTC position on Hyperliquid."""
+    """Close the long ETH position on Hyperliquid."""
     wallet = ctx.wallet_address
 
     try:
@@ -466,10 +466,10 @@ def _reconcile_position_state(ctx: AgentContext, memory: MemoryService) -> str:
 
 def run_update(ctx: AgentContext) -> None:
     """
-    Main update loop for the Hyperliquid BTC agent.
+    Main update loop for the Hyperliquid ETH agent.
 
     Fetches SentiChain trading signal and research note, then opens/closes
-    BTC long positions on Hyperliquid perpetuals based on the signal direction.
+    ETH long positions on Hyperliquid perpetuals based on the signal direction.
     
     This is a LONG-ONLY agent:
     - LONG signal -> open long position
@@ -592,3 +592,4 @@ def run_unwind(ctx: AgentContext) -> None:
 
     if _close_long_position(ctx, memory):
         memory.update_position_side(ctx.wallet_address, AGENT_NAME, "FLAT")
+

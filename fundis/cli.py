@@ -9,12 +9,9 @@ from .agents.base import AgentContext, DEFAULT_ALLOCATION_USDC
 from .agents.registry import get_agent, list_agent_names
 from .auth import (
     clear_auth_config,
-    clear_premium_base_rpc_url,
     load_auth_config,
-    save_premium_base_rpc_url,
     save_sentichain_api_key,
 )
-from .config import BASE_CHAIN_ID, BASE_RPC_URL
 from .hyperliquid import (
     get_hyperliquid_info,
     get_margin_summary,
@@ -33,7 +30,6 @@ from .swidge import (
     HYPERLIQUID_MIN_WITHDRAWAL,
 )
 from .wallets import WalletStore
-from .web3_utils import get_web3
 
 
 app = typer.Typer(help="Fundis agent platform CLI.")
@@ -203,19 +199,16 @@ def _build_agent_context(
     allocation_usdc: float | None = None,
 ) -> AgentContext:
     wallet = wallet_store.get_wallet(wallet_index)
-    w3 = get_web3()
     mem = MemoryService()
 
     def _printer(msg: str) -> None:
         typer.echo(msg)
 
     return AgentContext(
-        web3=w3,
         wallet_address=wallet.address,
         private_key=wallet.private_key,
         memory=mem,
         print=_printer,
-        chain_id=BASE_CHAIN_ID,
         allocation_usdc=(
             allocation_usdc if allocation_usdc is not None else DEFAULT_ALLOCATION_USDC
         ),
@@ -270,9 +263,7 @@ def _agent_interactive_menu() -> None:
     # Build initial context (with default allocation for display)
     ctx = _build_agent_context(wallet_store, wallet_index, allocation_usdc)
 
-    typer.echo(
-        f"\nUsing agent '{agent_name}' with wallet {ctx.wallet_address} on chain {ctx.chain_id}."
-    )
+    typer.echo(f"\nUsing agent '{agent_name}' with wallet {ctx.wallet_address}.")
 
     if has_position:
         mem = MemoryService()
@@ -346,10 +337,7 @@ def _auth_interactive_menu() -> None:
         typer.echo("\n=== Auth configuration ===")
         typer.echo("1) Show current SentiChain API key (partially masked)")
         typer.echo("2) Set / update SentiChain API key")
-        typer.echo("3) Delete SentiChain API key (and other auth data)")
-        typer.echo("4) Show current Base RPC endpoint (public or premium)")
-        typer.echo("5) Set / update premium Base RPC endpoint")
-        typer.echo("6) Delete premium Base RPC endpoint")
+        typer.echo("3) Delete SentiChain API key")
         typer.echo("q) Quit")
         choice = typer.prompt("Select an option", default="q").strip().lower()
 
@@ -380,37 +368,9 @@ def _auth_interactive_menu() -> None:
             if not cfg or not cfg.sentichain_api_key:
                 typer.echo("No API key configured to delete.")
                 continue
-            if typer.confirm(
-                "Delete the stored SentiChain API key and any premium RPC endpoints?"
-            ):
+            if typer.confirm("Delete the stored SentiChain API key?"):
                 clear_auth_config()
-                typer.echo("SentiChain API key and auth config deleted.")
-        elif choice == "4":
-            if cfg and cfg.premium_base_rpc_url:
-                typer.echo(f"Premium Base RPC endpoint: {cfg.premium_base_rpc_url}")
-            else:
-                typer.echo(
-                    "No premium Base RPC endpoint configured. "
-                    f"Using public endpoint: {BASE_RPC_URL}"
-                )
-        elif choice == "5":
-            new_rpc = typer.prompt(
-                "Enter premium Base RPC URL (HTTPS, with your provider key)"
-            ).strip()
-            if not new_rpc:
-                typer.echo("Empty URL, nothing saved.")
-                continue
-            save_premium_base_rpc_url(new_rpc)
-            typer.echo(
-                "Premium Base RPC endpoint saved to local auth file (~/.fundis/auth.json)."
-            )
-        elif choice == "6":
-            if not cfg or not cfg.premium_base_rpc_url:
-                typer.echo("No premium Base RPC endpoint configured to delete.")
-                continue
-            if typer.confirm("Delete the stored premium Base RPC endpoint?"):
-                clear_premium_base_rpc_url()
-                typer.echo("Premium Base RPC endpoint deleted.")
+                typer.echo("SentiChain API key deleted.")
         elif choice in {"q", "quit", "exit"}:
             break
         else:
@@ -427,7 +387,7 @@ def swidge_main(ctx: typer.Context) -> None:
 
     Provides swap and bridge utilities:
     - Deposit USDC from Arbitrum to Hyperliquid
-    - (More coming soon)
+    - Withdraw USDC from Hyperliquid to Arbitrum
     """
     if ctx.invoked_subcommand is not None:
         return

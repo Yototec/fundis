@@ -6,15 +6,13 @@ IMPORTANT: These tests use real funds! Each test is limited to 1 USDC max.
 Prerequisites:
 1. Have a wallet imported via `fundis wallet`
 2. Have SentiChain API key set via `fundis auth`
-3. Have USDC on Base network (for Base agents)
-4. Have USDC on Hyperliquid (for Hyperliquid agent)
-5. Have USDC + ETH on Arbitrum (for bridge tests)
+3. Have USDC on Hyperliquid (for Hyperliquid agents)
+4. Have USDC + ETH on Arbitrum (for bridge tests)
 
 Run with: pytest tests/test_integration.py -v -s
 The -s flag shows print output for monitoring real transactions.
 
 To run specific test categories:
-    pytest tests/test_integration.py -v -s -k "base"       # Base network tests
     pytest tests/test_integration.py -v -s -k "hyperliquid" # Hyperliquid tests
     pytest tests/test_integration.py -v -s -k "bridge"     # Bridge tests
 """
@@ -76,16 +74,6 @@ def auth_config():
 class TestConnections:
     """Test network connections without transactions."""
 
-    def test_base_rpc_connection(self):
-        """Test Base RPC connection."""
-        from fundis.web3_utils import get_web3
-
-        w3 = get_web3()
-        assert w3.is_connected(), "Failed to connect to Base RPC"
-        chain_id = w3.eth.chain_id
-        assert chain_id == 8453, f"Expected Base chain ID 8453, got {chain_id}"
-        print(f"✓ Connected to Base (chain ID: {chain_id})")
-
     def test_arbitrum_rpc_connection(self):
         """Test Arbitrum RPC connection."""
         from fundis.swidge import get_arbitrum_web3
@@ -108,20 +96,35 @@ class TestConnections:
         assert btc_price > 0, "Invalid BTC price"
         print(f"✓ Connected to Hyperliquid (BTC price: ${btc_price:,.2f})")
 
-    def test_sentichain_api(self, auth_config):
-        """Test SentiChain API connection."""
+    def test_sentichain_trading_signal_api(self, auth_config):
+        """Test SentiChain trading signal API connection."""
         import requests
 
         url = (
             "https://api.sentichain.com/agent/get_reasoning_last"
-            f"?ticker=BTC&summary_type=l3_event_sentiment_reasoning"
+            f"?ticker=BTC&summary_type=product_trading_signal"
             f"&api_key={auth_config.sentichain_api_key}"
         )
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(url, timeout=15)
         assert resp.status_code == 200, f"SentiChain API error: {resp.status_code}"
         data = resp.json()
         assert "reasoning" in data, "Invalid SentiChain response"
-        print("✓ Connected to SentiChain API")
+        print("✓ Connected to SentiChain Trading Signal API")
+
+    def test_sentichain_research_note_api(self, auth_config):
+        """Test SentiChain research note API connection."""
+        import requests
+
+        url = (
+            "https://api.sentichain.com/agent/get_reasoning_last"
+            f"?ticker=BTC&summary_type=product_research_note"
+            f"&api_key={auth_config.sentichain_api_key}"
+        )
+        resp = requests.get(url, timeout=15)
+        assert resp.status_code == 200, f"SentiChain API error: {resp.status_code}"
+        data = resp.json()
+        assert "reasoning" in data, "Invalid SentiChain response"
+        print("✓ Connected to SentiChain Research Note API")
 
 
 # ============================================================================
@@ -131,27 +134,6 @@ class TestConnections:
 
 class TestBalances:
     """Test balance checking on various networks."""
-
-    def test_base_usdc_balance(self, first_wallet):
-        """Check USDC balance on Base."""
-        from fundis.web3_utils import get_web3, get_erc20_balance
-        from fundis.config import USDC_ADDRESS
-
-        w3 = get_web3()
-        human, raw, info = get_erc20_balance(w3, USDC_ADDRESS, first_wallet.address)
-        print(f"✓ Base USDC balance: {human} {info.symbol}")
-        assert info.symbol == "USDC"
-        return float(human)
-
-    def test_base_eth_balance(self, first_wallet):
-        """Check ETH balance on Base (for gas)."""
-        from fundis.web3_utils import get_web3
-
-        w3 = get_web3()
-        raw = w3.eth.get_balance(first_wallet.address)
-        eth_balance = Decimal(raw) / Decimal(10**18)
-        print(f"✓ Base ETH balance: {eth_balance:.6f} ETH")
-        return float(eth_balance)
 
     def test_arbitrum_usdc_balance(self, first_wallet):
         """Check USDC balance on Arbitrum."""
@@ -351,7 +333,7 @@ class TestBridge:
     @pytest.mark.skipif(True, reason="Enable manually to test real bridge deposit")
     def test_bridge_deposit(self, first_wallet):
         """
-        REAL TRANSACTION TEST: Deposit 1 USDC from Arbitrum to Hyperliquid.
+        REAL TRANSACTION TEST: Deposit 5 USDC from Arbitrum to Hyperliquid.
 
         To enable: Change @pytest.mark.skipif(True, ...) to @pytest.mark.skipif(False, ...)
         """
@@ -360,16 +342,15 @@ class TestBridge:
             deposit_usdc_to_hyperliquid,
         )
 
-        print(
-            f"\n⚠️  REAL TRANSACTION: Depositing ${TEST_ALLOCATION_USDC} USDC to Hyperliquid..."
-        )
+        deposit_amount = 5.0  # Minimum deposit is 5 USDC
+        print(f"\n⚠️  REAL TRANSACTION: Depositing ${deposit_amount} USDC to Hyperliquid...")
 
         w3 = get_arbitrum_web3()
         result = deposit_usdc_to_hyperliquid(
             w3,
             first_wallet.address,
             first_wallet.private_key,
-            TEST_ALLOCATION_USDC,
+            deposit_amount,
             print_fn=print,
         )
 
@@ -417,87 +398,65 @@ class TestBridge:
 
 
 # ============================================================================
-# Base Agent Tests (May involve transactions)
+# Trading Signal Tests
 # ============================================================================
 
 
-class TestBaseAgent:
-    """Test Base network agent functionality."""
+class TestTradingSignals:
+    """Test SentiChain trading signal functionality."""
 
-    def test_aerodrome_liquidity_check(self):
-        """Check Aerodrome liquidity for USDC/WBTC pair."""
-        from fundis.web3_utils import get_web3
-        from fundis.aerodrome import try_aerodrome_swap_simulation
-        from fundis.config import USDC_ADDRESS, WBTC_ADDRESS
+    def test_fetch_btc_trading_signal(self, auth_config):
+        """Fetch and parse BTC trading signal."""
+        from fundis.agents.sentichain_btc_hyperliquid import fetch_trading_signal
 
-        w3 = get_web3()
-
-        # Try to simulate a small swap (1 USDC)
-        amount_raw = 1_000_000  # 1 USDC (6 decimals)
-
-        result = try_aerodrome_swap_simulation(
-            w3,
-            USDC_ADDRESS,
-            WBTC_ADDRESS,
-            amount_raw,
-            "0x0000000000000000000000000000000000000001",
-        )
-
-        if result:
-            output, routes = result
-            print(f"✓ Aerodrome USDC→WBTC liquidity available")
-            print(f"  1 USDC → ~{output / 10**8:.8f} WBTC")  # WBTC has 8 decimals
+        signal = fetch_trading_signal("BTC", auth_config.sentichain_api_key)
+        
+        if signal:
+            print(f"✓ BTC Trading Signal:")
+            print(f"  Direction: {signal.direction}")
+            print(f"  Confidence: {signal.confidence:.0%}")
+            print(f"  Strength: {signal.strength}")
+            print(f"  Conviction: {signal.conviction_score}/10")
+            print(f"  Risk Rating: {signal.risk_rating}")
         else:
-            print("✗ No Aerodrome liquidity for USDC→WBTC")
+            print("✗ No BTC trading signal available")
 
-        return result is not None
+        return signal
 
-    def test_allowance_check(self, first_wallet):
-        """Check current USDC allowance for Aerodrome router."""
-        from fundis.web3_utils import get_web3, to_checksum, ERC20_MINIMAL_ABI
-        from fundis.config import USDC_ADDRESS, AERODROME_ROUTER_ADDRESS
+    def test_fetch_eth_trading_signal(self, auth_config):
+        """Fetch and parse ETH trading signal."""
+        from fundis.agents.sentichain_eth_hyperliquid import fetch_trading_signal
 
-        w3 = get_web3()
-        usdc = w3.eth.contract(
-            address=to_checksum(w3, USDC_ADDRESS),
-            abi=ERC20_MINIMAL_ABI,
-        )
-
-        allowance = usdc.functions.allowance(
-            to_checksum(w3, first_wallet.address),
-            to_checksum(w3, AERODROME_ROUTER_ADDRESS),
-        ).call()
-
-        allowance_human = allowance / 10**6
-        max_approval = 2**256 - 1
-
-        if allowance == max_approval:
-            print("✓ USDC allowance: MAX (unlimited)")
-        elif allowance > 0:
-            print(f"✓ USDC allowance: {allowance_human:.2f} USDC")
+        signal = fetch_trading_signal("ETH", auth_config.sentichain_api_key)
+        
+        if signal:
+            print(f"✓ ETH Trading Signal:")
+            print(f"  Direction: {signal.direction}")
+            print(f"  Confidence: {signal.confidence:.0%}")
+            print(f"  Strength: {signal.strength}")
+            print(f"  Conviction: {signal.conviction_score}/10")
         else:
-            print("✓ USDC allowance: 0 (needs approval)")
+            print("✗ No ETH trading signal available")
 
-        return allowance
+        return signal
 
-    @pytest.mark.skipif(True, reason="Enable manually to test real swap")
-    def test_base_swap_usdc_to_wbtc(self, first_wallet, memory_service):
-        """
-        REAL TRANSACTION TEST: Swap 1 USDC to WBTC on Base.
+    def test_fetch_btc_research_note(self, auth_config):
+        """Fetch BTC research note."""
+        from fundis.agents.sentichain_btc_hyperliquid import fetch_research_note
 
-        To enable: Change @pytest.mark.skipif(True, ...) to @pytest.mark.skipif(False, ...)
-        """
-        from fundis.web3_utils import get_web3
-        from fundis.agents.base import AgentContext
+        note = fetch_research_note("BTC", auth_config.sentichain_api_key)
+        
+        if note:
+            lines = note.split("\n")
+            print(f"✓ BTC Research Note ({len(lines)} lines):")
+            for line in lines[:5]:
+                print(f"  {line}")
+            if len(lines) > 5:
+                print(f"  ... and {len(lines) - 5} more lines")
+        else:
+            print("✗ No BTC research note available")
 
-        print(
-            f"\n⚠️  REAL TRANSACTION: Swapping ${TEST_ALLOCATION_USDC} USDC to WBTC..."
-        )
-
-        # This would need to be implemented as a direct call to _perform_swap
-        # For now, you can test via the CLI: fundis agent
-        print("  Note: Use `fundis agent` to test actual swaps")
-        print("  Select 'SentiChain BTC Agent on Base' with 1 USDC allocation")
+        return note
 
 
 # ============================================================================
@@ -536,8 +495,6 @@ class TestCustomAllocation:
         assert retrieved.allocated_amount == test_allocation
         print(f"✓ Allocation stored correctly: {retrieved.allocated_amount} USDC")
 
-        # Cleanup - we don't have a delete method, but the test position won't affect anything
-
 
 # ============================================================================
 # Summary Test
@@ -549,8 +506,6 @@ class TestSummary:
 
     def test_print_summary(self, first_wallet):
         """Print a summary of wallet status across all networks."""
-        from fundis.web3_utils import get_web3, get_erc20_balance
-        from fundis.config import USDC_ADDRESS
         from fundis.swidge import (
             get_arbitrum_web3,
             get_arbitrum_usdc_balance,
@@ -565,31 +520,16 @@ class TestSummary:
         print(f"Address: {first_wallet.address}")
         print()
 
-        # Base
-        try:
-            w3_base = get_web3()
-            base_usdc, _, _ = get_erc20_balance(
-                w3_base, USDC_ADDRESS, first_wallet.address
-            )
-            base_eth = Decimal(w3_base.eth.get_balance(first_wallet.address)) / Decimal(
-                10**18
-            )
-            print(f"BASE NETWORK:")
-            print(f"  USDC: {base_usdc:.2f}")
-            print(f"  ETH:  {base_eth:.6f}")
-        except Exception as e:
-            print(f"BASE NETWORK: Error - {e}")
-
         # Arbitrum
         try:
             w3_arb = get_arbitrum_web3()
             arb_usdc, _ = get_arbitrum_usdc_balance(w3_arb, first_wallet.address)
             arb_eth = get_arbitrum_eth_balance(w3_arb, first_wallet.address)
-            print(f"\nARBITRUM:")
+            print(f"ARBITRUM:")
             print(f"  USDC: {arb_usdc:.2f}")
             print(f"  ETH:  {arb_eth:.6f}")
         except Exception as e:
-            print(f"\nARBITRUM: Error - {e}")
+            print(f"ARBITRUM: Error - {e}")
 
         # Hyperliquid
         try:

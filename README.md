@@ -4,16 +4,13 @@ Web3 trading agents powered by SentiChain sentiment data.
 
 ## Overview
 
-Fundis is a Python CLI tool for running automated trading agents that make decisions based on real-time sentiment analysis from [SentiChain](https://sentichain.com/). Agents can execute:
-
-- **Spot swaps** on Base network via Aerodrome Finance
-- **Perpetual futures** on Hyperliquid DEX
+Fundis is a Python CLI tool for running automated trading agents that make decisions based on real-time trading signals from [SentiChain](https://sentichain.com/). Agents execute **perpetual futures** trades on Hyperliquid DEX.
 
 ## Features
 
-- **Sentiment-Based Trading**: Agents automatically trade based on bullish/bearish sentiment from SentiChain
-- **Multi-Chain Support**: Trade on Base (spot) and Hyperliquid (perpetuals)
-- **Perpetuals Trading**: Open/close BTC long positions on Hyperliquid with margin monitoring
+- **Signal-Based Trading**: Agents trade based on LONG/SHORT signals from SentiChain's AI analysis
+- **Research Notes**: Full research reports available for transparency on trading decisions
+- **Perpetuals Trading**: Open/close BTC and ETH long positions on Hyperliquid
 - **Bridge & Swap**: Built-in tools to move USDC between Arbitrum and Hyperliquid
 - **Customizable Allocations**: Set your own allocation per agent (default 10 USDC)
 - **Smart Execution**: Uses `min(balance, allocation)` to prevent transaction failures
@@ -54,9 +51,17 @@ Get your API key from [SentiChain](https://sentichain.com/)
 fundis wallet
 ```
 
-Import an EVM private key with funds on the relevant network.
+Import an EVM private key.
 
-### 3. Run an agent
+### 3. Deposit USDC to Hyperliquid
+
+```bash
+fundis swidge
+```
+
+Bridge USDC from Arbitrum to Hyperliquid (you need USDC + ETH on Arbitrum).
+
+### 4. Run an agent
 
 ```bash
 fundis agent
@@ -66,21 +71,40 @@ Choose an agent, select your wallet, and set your allocation amount.
 
 ## Available Agents
 
-| Agent | Network | Type | Action |
-|-------|---------|------|--------|
-| **SentiChain ETH Agent on Base** | Base | Spot | Swaps USDC ↔ WETH |
-| **SentiChain BTC Agent on Base** | Base | Spot | Swaps USDC ↔ WBTC |
-| **SentiChain BTC Agent on Hyperliquid** | Hyperliquid | Perpetuals | Opens/closes BTC long positions |
+| Agent | Asset | Type | Action |
+|-------|-------|------|--------|
+| **SentiChain BTC Agent on Hyperliquid** | BTC | Perpetuals | Long-only trading based on signals |
+| **SentiChain ETH Agent on Hyperliquid** | ETH | Perpetuals | Long-only trading based on signals |
 
 ## Trading Logic
 
-Each agent:
-1. Fetches latest sentiment events from SentiChain API
-2. Counts bullish vs bearish signals
+Each agent is **long-only** and uses SentiChain's trading signals:
+
+1. Fetches latest trading signal from SentiChain API (`product_trading_signal`)
+2. Fetches research note for logging/display (`product_research_note`)
 3. Makes trading decisions:
-   - **More bullish → Long** (buy asset or open long)
-   - **More bearish → Exit** (sell asset or close position)
-   - **Equal signals → Hold** current position
+   - **LONG signal → Open long** (if currently FLAT)
+   - **SHORT signal → Close long** (go to FLAT)
+   - **Already in correct position → Hold**
+
+### Trading Signal Structure
+
+The SentiChain API provides structured signals with:
+- **Direction**: LONG or SHORT
+- **Confidence**: 0-100% confidence level
+- **Strength**: WEAK, MODERATE, or STRONG
+- **Conviction Score**: 1-10 rating
+- **Risk Rating**: LOW, MEDIUM, or HIGH
+- **Entry/Exit Conditions**: Specific price levels and conditions
+- **Timeframe**: Expected duration
+
+### Research Notes
+
+Each signal is accompanied by a research note containing:
+- Executive summary and investment thesis
+- Bull/bear case scenarios with probabilities
+- Key catalysts to watch
+- Risk factors and contrarian views
 
 ### Allocation System
 
@@ -107,7 +131,6 @@ fundis wallet
 fundis auth
 ```
 - Set SentiChain API key
-- Configure premium RPC URL (optional)
 - Show current configuration
 - Delete stored keys
 
@@ -119,7 +142,7 @@ fundis agent
 - Choose wallet
 - Set allocation (first run or after unwind)
 - Update agent (run trading logic once)
-- Unwind agent (return to USDC/flat)
+- Unwind agent (return to FLAT)
 - View current allocation
 
 ### Bridge & Swap (Swidge)
@@ -144,19 +167,11 @@ fundis logs
 
 ## Network Configuration
 
-### Base Network (Spot Trading)
-- **Chain ID**: 8453
-- **DEX**: Aerodrome Finance
-- **Tokens**:
-  - USDC: `0x833589fcd6edb6e08f4c7c32d4f71b54bda02913`
-  - WETH: `0x4200000000000000000000000000000000000006`
-  - WBTC: `0x0555E30da8f98308EdB960aa94C0Db47230d2B9c`
-
 ### Hyperliquid (Perpetuals Trading)
 - **Deposit Network**: Arbitrum (Chain ID: 42161)
 - **Bridge Contract**: `0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7`
 - **Collateral**: USDC
-- **Available Pairs**: BTC-PERP (more coming)
+- **Available Pairs**: BTC-PERP, ETH-PERP
 
 ### Arbitrum (Bridge)
 - **Chain ID**: 42161
@@ -164,7 +179,7 @@ fundis logs
 
 ## Hyperliquid Agent Features
 
-The Hyperliquid perpetuals agent includes:
+The Hyperliquid perpetuals agents include:
 
 - **Margin Checking**: Validates available margin before opening positions
 - **Liquidation Monitoring**: Warns if position is within 5% of liquidation price
@@ -172,12 +187,36 @@ The Hyperliquid perpetuals agent includes:
 - **Safe Order Execution**: Uses 2% slippage tolerance for market orders
 - **Structured Results**: Clear success/failure status with fill details
 
+## SentiChain API Integration
+
+The agents use two SentiChain API endpoints:
+
+### Trading Signal
+```
+GET https://api.sentichain.com/agent/get_reasoning_last
+    ?ticker={BTC|ETH}
+    &summary_type=product_trading_signal
+    &api_key={your_api_key}
+```
+
+Returns structured JSON with trading direction, confidence, and risk parameters.
+
+### Research Note
+```
+GET https://api.sentichain.com/agent/get_reasoning_last
+    ?ticker={BTC|ETH}
+    &summary_type=product_research_note
+    &api_key={your_api_key}
+```
+
+Returns markdown-formatted research report with detailed analysis.
+
 ## Data Storage
 
 All data is stored locally in `~/.fundis/`:
 - `wallets.json` - Wallet storage
 - `memory.db` - SQLite database for positions and logs
-- `auth.json` - API keys and RPC configuration
+- `auth.json` - API key configuration
 
 ## Security Considerations
 
@@ -187,17 +226,12 @@ All data is stored locally in `~/.fundis/`:
 - Start with small amounts to test the system
 - Perpetuals trading carries liquidation risk
 - This is alpha software - bugs may exist
-- Max approval is used for gas efficiency (revoke manually if needed)
 
 ## Requirements
 
 - Python 3.10+
-- For Base agents:
-  - Wallet with USDC on Base
-  - ETH on Base for gas
-- For Hyperliquid agents:
-  - USDC deposited on Hyperliquid (via Arbitrum bridge)
-  - ETH on Arbitrum for bridge gas
+- USDC deposited on Hyperliquid (via Arbitrum bridge)
+- ETH on Arbitrum for bridge gas
 
 ## Development
 
@@ -244,8 +278,8 @@ Transaction tests are disabled by default. To enable, edit `tests/test_integrati
 ## Dependencies
 
 - `typer` - CLI framework
-- `web3` - Ethereum interaction
 - `hyperliquid-python-sdk` - Hyperliquid DEX integration
+- `web3` - Ethereum interaction (for Arbitrum bridge)
 - `requests` - HTTP client
 
 ## Contributing
@@ -267,7 +301,5 @@ This software is for educational purposes. Trading cryptocurrencies and perpetua
 
 ## Acknowledgments
 
-- [SentiChain](https://sentichain.com/) for sentiment data
-- [Aerodrome Finance](https://aerodrome.finance/) for Base DEX infrastructure
-- [Hyperliquid](https://hyperliquid.xyz/) for perpetuals trading
-- Base network for low-cost EVM execution
+- [SentiChain](https://sentichain.com/) for AI-powered trading signals and research
+- [Hyperliquid](https://hyperliquid.xyz/) for perpetuals trading infrastructure
